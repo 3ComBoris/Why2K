@@ -51,8 +51,11 @@ async def on_ready():
         return
 
     try:
-        await channel.connect()
+        await channel.connect(self_deaf=True, self_mute=True)
         print(f"Joined voice channel: {channel.name}")
+    except discord.ClientException as exc:
+        print(f"Error: Could not connect to voice channel: {exc}")
+        await client.close()
     except discord.Forbidden:
         print(f"Error: Missing permissions to connect to {channel.name}.")
         await client.close()

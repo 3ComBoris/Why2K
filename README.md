@@ -7,6 +7,10 @@ A minimal Discord bot that joins a voice channel and holds the call open indefin
 - Python 3.8+
 - A Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - The numeric ID of the voice channel you want the bot to occupy
+- An Opus shared library (`libopus`) available on your system (required for voice support):
+  - **Linux**: `sudo apt-get install libopus0` (Debian/Ubuntu) or equivalent
+  - **macOS**: `brew install opus`
+  - **Windows**: bundled with `discord.py[voice]` via PyNaCl — no extra step needed
 
 ## Setup
 
