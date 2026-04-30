@@ -34,7 +34,6 @@ A minimal Discord bot that joins a voice channel and holds the call open indefin
 
    And the following bot permissions:
    - `Connect`
-   - `Speak`
 
 4. **Run the bot**
    ```bash
