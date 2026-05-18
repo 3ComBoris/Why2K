@@ -10,6 +10,9 @@ User=why2k
 Group=why2k
 WorkingDirectory=/opt/why2k
 EnvironmentFile=/etc/why2k/env
+# Unbuffered so print() output reaches journald in real time instead of
+# being block-buffered when stdout is a pipe.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/why2k/.venv/bin/python /opt/why2k/bot.py
 Restart=on-failure
 RestartSec=10
