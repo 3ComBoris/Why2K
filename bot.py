@@ -134,6 +134,18 @@ async def connect_to_voice():
                 if not isinstance(channel, discord.VoiceChannel):
                     await fail_startup(f"Error: Channel {CHANNEL_ID} is not a voice channel.")
                     return
+
+                # If we already have a VoiceClient attached to a different
+                # channel (e.g., admin moved the bot), move it back instead
+                # of calling connect() — which would raise ClientException
+                # "Already connected to a voice channel" and be treated as
+                # non-retryable.
+                existing = next(iter(client.voice_clients), None)
+                if existing is not None:
+                    await existing.move_to(channel)
+                    print(f"Moved voice client back to: {channel.name}")
+                    return
+
                 await channel.connect(self_deaf=True, self_mute=True)
                 print(f"Joined voice channel: {channel.name}")
                 return
