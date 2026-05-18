@@ -50,6 +50,16 @@ curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install
 curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | sudo bash
 ```
 
+**Curl-to-bash executes remote code without an integrity check.** Safer alternative — download, review, then execute. For production we recommend pinning to a specific tag or commit rather than `main` so a malicious or buggy upstream push can't change what runs on your host:
+
+```bash
+# Pin to a tag (or a commit SHA) instead of 'main'
+REF=v1.2.3
+curl -fsSL "https://raw.githubusercontent.com/3ComBoris/Why2K/${REF}/deploy/install.sh" -o /tmp/why2k-install.sh
+less /tmp/why2k-install.sh                # eyeball it
+BRANCH="${REF}" bash /tmp/why2k-install.sh
+```
+
 To deploy from a fork or a non-default branch, set `REPO_URL` and/or `BRANCH` in the environment before the pipe:
 
 ```bash

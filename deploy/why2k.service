@@ -13,6 +13,10 @@ EnvironmentFile=/etc/why2k/env
 # Unbuffered so print() output reaches journald in real time instead of
 # being block-buffered when stdout is a pipe.
 Environment=PYTHONUNBUFFERED=1
+# /opt/why2k is read-only at runtime (see ProtectSystem=strict below). Stop
+# Python from attempting to write __pycache__/*.pyc files, which would
+# silently fail every import.
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/why2k/.venv/bin/python /opt/why2k/bot.py
 Restart=on-failure
 RestartSec=10
@@ -29,7 +33,11 @@ PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/why2k
+# No ReadWritePaths: /opt/why2k stays read-only at runtime so a process
+# compromise can't persist by modifying the bot's own code or venv. The
+# installer (which runs as root, outside this unit's sandbox) is the only
+# thing that writes there. PYTHONDONTWRITEBYTECODE above prevents .pyc
+# write attempts on import.
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
