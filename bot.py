@@ -2,6 +2,7 @@ import asyncio
 import discord
 import os
 import sys
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -19,12 +20,19 @@ try:
 except ValueError:
     sys.exit(f"Error: VOICE_CHANNEL_ID must be a numeric ID, got: {_raw_channel_id!r}")
 
-PORT = int(os.getenv("PORT", "8080"))
-VOICE_CONNECT_RETRY_SECONDS = 30
+_raw_port = os.getenv("PORT", "8080")
+try:
+    PORT = int(_raw_port)
+except ValueError:
+    sys.exit(f"Error: PORT must be a numeric port, got: {_raw_port!r}")
+
+VOICE_CONNECT_INITIAL_RETRY_SECONDS = 30
+VOICE_CONNECT_MAX_RETRY_SECONDS = 300
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
-client.voice_connect_task = None
+voice_connect_task: Optional[asyncio.Task] = None
+fatal_startup_error = False
 
 
 async def handle_health_check(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -39,9 +47,22 @@ async def handle_health_check(reader: asyncio.StreamReader, writer: asyncio.Stre
             + body
         )
         await writer.drain()
+    except (ConnectionError, asyncio.IncompleteReadError, TimeoutError):
+        pass
     finally:
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except ConnectionError:
+            pass
+
+
+async def fail_startup(message: str):
+    global fatal_startup_error
+
+    fatal_startup_error = True
+    print(message)
+    await client.close()
 
 
 async def connect_to_voice():
@@ -51,22 +72,21 @@ async def connect_to_voice():
     try:
         channel = await client.fetch_channel(CHANNEL_ID)
     except discord.NotFound:
-        print(f"Error: Voice channel with ID {CHANNEL_ID} not found.")
-        await client.close()
+        await fail_startup(f"Error: Voice channel with ID {CHANNEL_ID} not found.")
         return
     except discord.Forbidden:
-        print(f"Error: Missing permissions to access channel {CHANNEL_ID}.")
-        await client.close()
+        await fail_startup(f"Error: Missing permissions to access channel {CHANNEL_ID}.")
         return
     except discord.HTTPException as exc:
-        print(f"Error: Failed to fetch channel {CHANNEL_ID}: {exc}")
-        await client.close()
+        await fail_startup(f"Error: Failed to fetch channel {CHANNEL_ID}: {exc}")
         return
 
     if not isinstance(channel, discord.VoiceChannel):
-        print(f"Error: Channel {CHANNEL_ID} is not a voice channel.")
-        await client.close()
+        await fail_startup(f"Error: Channel {CHANNEL_ID} is not a voice channel.")
         return
+
+    attempt = 1
+    retry_delay = VOICE_CONNECT_INITIAL_RETRY_SECONDS
 
     while not client.is_closed():
         if any(vc.channel.id == CHANNEL_ID for vc in client.voice_clients):
@@ -79,38 +99,38 @@ async def connect_to_voice():
         except TimeoutError:
             print(
                 f"Warning: Timed out connecting to {channel.name}. "
-                f"Retrying in {VOICE_CONNECT_RETRY_SECONDS} seconds."
+                f"Attempt {attempt}. Retrying in {retry_delay} seconds."
             )
         except discord.ClientException as exc:
             if any(vc.channel.id == CHANNEL_ID for vc in client.voice_clients):
                 return
             print(
                 f"Warning: Could not connect to voice channel: {exc}. "
-                f"Retrying in {VOICE_CONNECT_RETRY_SECONDS} seconds."
+                f"Attempt {attempt}. Retrying in {retry_delay} seconds."
             )
         except discord.Forbidden:
-            print(f"Error: Missing permissions to connect to {channel.name}.")
-            await client.close()
+            await fail_startup(f"Error: Missing permissions to connect to {channel.name}.")
             return
         except discord.HTTPException as exc:
             print(
                 f"Warning: Failed to connect to voice channel: {exc}. "
-                f"Retrying in {VOICE_CONNECT_RETRY_SECONDS} seconds."
+                f"Attempt {attempt}. Retrying in {retry_delay} seconds."
             )
-        except discord.opus.OpusNotLoaded as exc:
-            print(f"Error: Opus library not available: {exc}")
-            await client.close()
-            return
 
-        await asyncio.sleep(VOICE_CONNECT_RETRY_SECONDS)
+        await asyncio.sleep(retry_delay)
+        attempt += 1
+        retry_delay = min(retry_delay * 2, VOICE_CONNECT_MAX_RETRY_SECONDS)
 
 
 @client.event
 async def on_ready():
+    global voice_connect_task
+
     print(f"Logged in as {client.user}")
 
-    if client.voice_connect_task is None or client.voice_connect_task.done():
-        client.voice_connect_task = asyncio.create_task(connect_to_voice())
+    if voice_connect_task is None or voice_connect_task.done():
+        voice_connect_task = asyncio.create_task(connect_to_voice())
+
 
 async def main():
     health_server = await asyncio.start_server(handle_health_check, "0.0.0.0", PORT)
@@ -122,6 +142,9 @@ async def main():
     finally:
         health_server.close()
         await health_server.wait_closed()
+
+    if fatal_startup_error:
+        raise SystemExit(1)
 
 
 asyncio.run(main())
