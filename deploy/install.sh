@@ -31,6 +31,19 @@ as_app_user() {
   runuser -u "${APP_USER}" -- "$@"
 }
 
+# Abort if a path exists but isn't a real directory — a symlink at one of our
+# managed paths would cause the subsequent recursive chown/chmod to operate
+# on the symlink target, which is almost certainly not what the operator
+# wants (and could clobber ownership on, e.g., /etc).
+ensure_dir_is_safe() {
+  local path="$1"
+  if [[ -e "${path}" && (-L "${path}" || ! -d "${path}") ]]; then
+    echo "ERROR: ${path} exists but is not a regular directory (symlink or non-dir)." >&2
+    echo "Refusing to chown/chmod through it. Remove or replace it, then re-run." >&2
+    exit 1
+  fi
+}
+
 echo ">>> Installing OS packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -54,6 +67,7 @@ if ! id -u "${APP_USER}" >/dev/null 2>&1; then
 fi
 
 echo ">>> Preparing ${APP_DIR}"
+ensure_dir_is_safe "${APP_DIR}"
 mkdir -p "${APP_DIR}"
 # Recursive: a previous root-owned manual clone here would leave files that
 # the runuser-as-why2k git/venv/pip commands below can't touch.
@@ -78,6 +92,7 @@ as_app_user "${APP_DIR}/.venv/bin/pip" install --quiet --upgrade pip
 as_app_user "${APP_DIR}/.venv/bin/pip" install --quiet -r "${APP_DIR}/requirements.txt"
 
 echo ">>> Preparing env file at ${ENV_FILE}"
+ensure_dir_is_safe "${ENV_DIR}"
 mkdir -p "${ENV_DIR}"
 chmod 750 "${ENV_DIR}"
 chown root:"${APP_USER}" "${ENV_DIR}"
@@ -102,6 +117,15 @@ echo ">>> Installing systemd unit"
 install -m 0644 "${APP_DIR}/deploy/why2k.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service" >/dev/null
+
+# If the service is already running (this is an update, not a first install),
+# restart it so the new code takes effect. On a fresh install the service
+# isn't running yet, so we skip and let the operator start it after filling
+# in secrets.
+if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+  echo ">>> Restarting ${SERVICE_NAME} to pick up new code"
+  systemctl restart "${SERVICE_NAME}.service"
+fi
 
 echo
 echo "Install complete."

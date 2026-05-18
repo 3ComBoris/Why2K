@@ -38,7 +38,9 @@ The bot's health-check endpoint binds `0.0.0.0:8080` but the firewall blocks it 
 
 ## 3. Install Why2K
 
-One command, idempotent — safe to re-run after every `git pull`:
+> **`/opt/why2k` is managed by the installer.** Re-running the installer does `git reset --hard origin/${BRANCH}`, which discards any local edits in that tree. Make changes via the repo (commit, push, re-run the installer), never by editing files in `/opt/why2k` on the server. Secrets live in `/etc/why2k/env` and are never overwritten by the installer.
+
+One command, idempotent — safe to re-run after every `git pull`. On an update (service already running) the installer restarts the service automatically; on a fresh install it stops short of starting so you can fill in secrets first.
 
 ```bash
 # As root:
@@ -121,11 +123,10 @@ why2k: Joined voice channel: …
 
 ## 7. Updating
 
-Re-run the installer — it does `git fetch` + `git reset --hard origin/${BRANCH}`, reinstalls deps, and reloads systemd. Override `BRANCH` to deploy a non-`main` branch.
+Re-run the installer — it does `git fetch` + `git reset --hard origin/${BRANCH}`, reinstalls deps, reloads systemd, and (if the service was already running) restarts it. Override `BRANCH` to deploy a non-`main` branch.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | bash
-systemctl restart why2k
 ```
 
 Or update in place (`runuser` avoids the `sudo` dependency on minimal Debian):
