@@ -1,0 +1,55 @@
+[Unit]
+Description=Why2K Discord voice bot
+Documentation=https://github.com/3ComBoris/Why2K
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=why2k
+Group=why2k
+WorkingDirectory=/opt/why2k
+EnvironmentFile=/etc/why2k/env
+# Unbuffered so print() output reaches journald in real time instead of
+# being block-buffered when stdout is a pipe.
+Environment=PYTHONUNBUFFERED=1
+# /opt/why2k is read-only at runtime (see ProtectSystem=strict below). Stop
+# Python from attempting to write __pycache__/*.pyc files, which would
+# silently fail every import.
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/why2k/.venv/bin/python /opt/why2k/bot.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+
+# stdout/stderr -> journald (view with: journalctl -u why2k -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=why2k
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+# No ReadWritePaths: /opt/why2k stays read-only at runtime so a process
+# compromise can't persist by modifying the bot's own code or venv. The
+# installer (which runs as root, outside this unit's sandbox) is the only
+# thing that writes there. PYTHONDONTWRITEBYTECODE above prevents .pyc
+# write attempts on import.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
