@@ -1,12 +1,26 @@
 import asyncio
-import discord
+import logging
 import os
 import sys
+import time
 from typing import Optional
 
+import discord
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Surface discord.py's voice diagnostics so close codes (4006/4014/4015/...)
+# appear in the deployment log. The rest of the discord namespace stays at
+# WARNING to keep noise down.
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logging.getLogger("discord").setLevel(logging.WARNING)
+logging.getLogger("discord.voice_state").setLevel(logging.DEBUG)
+logging.getLogger("discord.voice_client").setLevel(logging.DEBUG)
+logging.getLogger("discord.gateway").setLevel(logging.INFO)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
@@ -32,6 +46,15 @@ VOICE_CONNECT_INITIAL_RETRY_SECONDS = 30
 VOICE_CONNECT_MAX_RETRY_SECONDS = 300
 HEALTH_CHECK_READ_TIMEOUT_SECONDS = 5
 
+# Circuit breaker for the case where voice sessions keep dying within seconds
+# of being established (almost always a hosting-platform UDP egress problem,
+# e.g. DigitalOcean App Platform, Render, Heroku). After this many consecutive
+# sub-threshold sessions we stop reconnecting and flip the health endpoint to
+# 503 so the platform notices something is wrong instead of looking healthy
+# while flapping forever.
+VOICE_SESSION_MIN_DURATION_SECONDS = 60
+VOICE_SESSION_FAILURE_LIMIT = 5
+
 
 class Why2KClient(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -39,6 +62,8 @@ class Why2KClient(discord.Client):
         self.voice_connect_task: Optional[asyncio.Task] = None
         self.fatal_startup_error: bool = False
         self.discord_ready: bool = False
+        self.last_voice_connected_at: Optional[float] = None
+        self.short_voice_session_count: int = 0
 
 
 intents = discord.Intents.default()
@@ -247,10 +272,44 @@ async def on_voice_state_update(member, before, after):
             f"{after_channel_id} (target {CHANNEL_ID})"
         )
 
+    # Record when we land in the target channel so we can measure session
+    # duration on the way out.
+    if before_channel_id != CHANNEL_ID and after_channel_id == CHANNEL_ID:
+        client.last_voice_connected_at = time.monotonic()
+
     if after_channel_id == CHANNEL_ID:
         return
 
     if before_channel_id == CHANNEL_ID:
+        # Only score true disconnects (after_channel_id is None) against the
+        # circuit breaker. Admin-initiated moves to another channel are a
+        # deliberate action, not a network failure.
+        if after_channel_id is None and client.last_voice_connected_at is not None:
+            duration = time.monotonic() - client.last_voice_connected_at
+            if duration < VOICE_SESSION_MIN_DURATION_SECONDS:
+                client.short_voice_session_count += 1
+                print(
+                    f"Voice session lasted {duration:.1f}s "
+                    f"(< {VOICE_SESSION_MIN_DURATION_SECONDS}s threshold). "
+                    f"Short-session count: "
+                    f"{client.short_voice_session_count}/{VOICE_SESSION_FAILURE_LIMIT}."
+                )
+                if client.short_voice_session_count >= VOICE_SESSION_FAILURE_LIMIT:
+                    await fail_startup(
+                        f"Error: Voice sessions are dropping within "
+                        f"{VOICE_SESSION_MIN_DURATION_SECONDS}s "
+                        f"({VOICE_SESSION_FAILURE_LIMIT} consecutive). This is almost "
+                        f"always a hosting-platform UDP egress issue (DigitalOcean "
+                        f"App Platform, Render, and Heroku are common offenders), "
+                        f"not a Discord or bot bug. Deploy to a host with "
+                        f"persistent outbound UDP (a VPS, Fly.io, Railway, or "
+                        f"DigitalOcean Droplet)."
+                    )
+                    return
+            else:
+                # A healthy long session resets the breaker.
+                client.short_voice_session_count = 0
+
         print(f"Voice disconnected from channel {CHANNEL_ID}; reconnecting.")
         if client.voice_connect_task is None or client.voice_connect_task.done():
             client.voice_connect_task = asyncio.create_task(connect_to_voice())
