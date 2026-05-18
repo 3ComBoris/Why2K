@@ -47,3 +47,9 @@ A minimal Discord bot that joins a voice channel and holds the call open indefin
     The bot will log in, join the configured voice channel, and stay there indefinitely.
 
     The bot also starts a lightweight HTTP health-check listener for readiness probes on `PORT` (default `8080`).
+
+## Deployment
+
+For a long-running production deployment, run Why2K as a `systemd` service on a VPS that supports persistent outbound UDP (a DigitalOcean Droplet, Fly.io, Railway, or any plain VPS). Discord voice will not stay connected on hosts that NAT-translate UDP egress (DigitalOcean App Platform, Render, Heroku) — sessions are forcibly closed after ~30 seconds.
+
+See [`docs/deploy-droplet.md`](docs/deploy-droplet.md) for a step-by-step walkthrough using DigitalOcean Droplets. The installer ([`deploy/install.sh`](deploy/install.sh)) creates a `why2k` system user, builds a virtualenv at `/opt/why2k/.venv`, installs the unit at `/etc/systemd/system/why2k.service`, and is idempotent so re-running it updates the deployment.

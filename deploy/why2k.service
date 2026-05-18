@@ -1,0 +1,44 @@
+[Unit]
+Description=Why2K Discord voice bot
+Documentation=https://github.com/3ComBoris/Why2K
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=why2k
+Group=why2k
+WorkingDirectory=/opt/why2k
+EnvironmentFile=/etc/why2k/env
+ExecStart=/opt/why2k/.venv/bin/python /opt/why2k/bot.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+
+# stdout/stderr -> journald (view with: journalctl -u why2k -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=why2k
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/why2k
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
