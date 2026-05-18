@@ -61,6 +61,9 @@ chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 
 echo ">>> Cloning / updating repo at ${APP_DIR} (branch ${BRANCH})"
 if [[ -d "${APP_DIR}/.git" ]]; then
+  # If REPO_URL changed between runs, retarget origin so the fetch pulls
+  # from the new source instead of the stale remote.
+  as_app_user git -C "${APP_DIR}" remote set-url origin "${REPO_URL}"
   as_app_user git -C "${APP_DIR}" fetch --depth=1 origin "${BRANCH}"
   as_app_user git -C "${APP_DIR}" reset --hard "origin/${BRANCH}"
 else

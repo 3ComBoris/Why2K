@@ -152,10 +152,10 @@ systemctl restart why2k
 
 ## 9. Troubleshooting
 
-**Service won't start.** `journalctl -u why2k -n 50` will show the Python error. Most common: `DISCORD_TOKEN is not set` (you didn't edit `/etc/why2k/env`).
+**Service won't start.** `journalctl -u why2k -n 50` will show the Python error. Most common: `DISCORD_TOKEN is not set. Please add it to your .env file.` That error message comes from the bot's startup check — it's wording for local development. **On this systemd deployment the equivalent file is `/etc/why2k/env`**, and the unit loads it via `EnvironmentFile=`. Edit that one, not a `.env` in `/opt/why2k`.
 
 **Bot logs in but voice still drops every 30s.** Confirm with `ss -ulnp | grep python` that the bot has bound a local UDP port, and `iptables -L OUTPUT` doesn't reject UDP. On a standard droplet with default `ufw` outbound is unrestricted — if you've tightened it, allow outbound UDP to Discord's voice regions.
 
 **`Voice sessions are dropping within 60s` followed by a 503 health response.** The circuit breaker tripped (5 consecutive short sessions). The droplet's outbound UDP isn't reaching Discord. Check firewall rules and any VPN/proxy on the host.
 
-**libopus warning at startup.** Harmless on a droplet — `libopus0` is installed by the script, and the bot connects `self_mute=True, self_deaf=True` so the codec isn't exercised anyway.
+**`libopus is not loaded` warning at startup.** The installer apt-gets `libopus0`, so on a freshly-installed droplet this warning shouldn't appear. If it does, libopus isn't on the dynamic linker's search path — verify with `ldconfig -p | grep libopus`. The warning matters because discord.py raises `OpusNotLoaded` from the voice connect flow under some conditions, and `connect_to_voice` treats that as fatal. If voice never establishes and the journal cites Opus, reinstall the package (`apt install --reinstall libopus0`) and restart the service.
