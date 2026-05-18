@@ -40,8 +40,10 @@ A minimal Discord bot that joins a voice channel and holds the call open indefin
    - `Connect`
 
 4. **Run the bot**
-   ```bash
-   python bot.py
-   ```
+    ```bash
+    python bot.py
+    ```
 
-   The bot will log in, join the configured voice channel, and stay there indefinitely.
+    The bot will log in, join the configured voice channel, and stay there indefinitely.
+
+    The bot also starts a lightweight HTTP health-check listener for readiness probes on `PORT` (default `8080`).
