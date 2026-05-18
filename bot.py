@@ -215,6 +215,35 @@ async def on_ready():
         client.voice_connect_task = asyncio.create_task(connect_to_voice())
 
 
+@client.event
+async def on_voice_state_update(member, before, after):
+    # discord.py's VoiceClient runs its own internal reconnect loop on voice
+    # WS drops; once it gives up, the VoiceClient is removed from
+    # client.voice_clients and nothing re-triggers our connect logic
+    # (on_ready only fires on full gateway reconnect, not voice-only drops).
+    # Watch our own voice state and re-spawn connect_to_voice whenever we
+    # leave the target channel.
+    if client.user is None or member.id != client.user.id:
+        return
+
+    before_channel_id = before.channel.id if before.channel else None
+    after_channel_id = after.channel.id if after.channel else None
+
+    if before_channel_id != after_channel_id:
+        print(
+            f"Voice state changed: channel {before_channel_id} -> "
+            f"{after_channel_id} (target {CHANNEL_ID})"
+        )
+
+    if after_channel_id == CHANNEL_ID:
+        return
+
+    if before_channel_id == CHANNEL_ID:
+        print(f"Voice disconnected from channel {CHANNEL_ID}; reconnecting.")
+        if client.voice_connect_task is None or client.voice_connect_task.done():
+            client.voice_connect_task = asyncio.create_task(connect_to_voice())
+
+
 async def main():
     # Opus is loaded lazily by discord.py on first voice use. Probe at startup
     # so a misconfigured deployment surfaces the issue immediately. We warn
