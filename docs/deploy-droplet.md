@@ -17,6 +17,8 @@ After it boots, SSH in:
 ssh root@your.droplet.ip
 ```
 
+This guide assumes you're logged in as `root` (the DigitalOcean default). If you've already created a non-root user with administrator rights, prepend `sudo` to every command shown — except on minimal Debian images that ship without `sudo` installed, where you should either install `sudo` (`apt install -y sudo`) or stay as `root`.
+
 ## 2. Lock the host down (optional but recommended)
 
 ```bash
@@ -39,7 +41,18 @@ The bot's health-check endpoint binds `0.0.0.0:8080` but the firewall blocks it 
 One command, idempotent — safe to re-run after every `git pull`:
 
 ```bash
+# As root:
+curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | bash
+
+# As a sudoer (skip if you're already root):
 curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | sudo bash
+```
+
+To deploy from a fork or a non-default branch, set `REPO_URL` and/or `BRANCH` in the environment before the pipe:
+
+```bash
+REPO_URL=https://github.com/your-fork/Why2K.git BRANCH=my-branch \
+  bash <(curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh)
 ```
 
 What it does:
@@ -56,6 +69,10 @@ What it does:
 Edit `/etc/why2k/env` and fill in the real values:
 
 ```bash
+# As root:
+nano /etc/why2k/env
+
+# As a sudoer:
 sudoedit /etc/why2k/env
 ```
 
@@ -68,14 +85,14 @@ VOICE_CHANNEL_ID=123456789012345678
 ## 5. Start the service
 
 ```bash
-sudo systemctl start why2k
-sudo systemctl status why2k
+systemctl start why2k
+systemctl status why2k
 ```
 
 Tail the logs:
 
 ```bash
-sudo journalctl -u why2k -f
+journalctl -u why2k -f
 ```
 
 You should see:
@@ -93,30 +110,30 @@ why2k: Joined voice channel: …
 
 | Action | Command |
 |---|---|
-| Status | `sudo systemctl status why2k` |
-| Start | `sudo systemctl start why2k` |
-| Stop | `sudo systemctl stop why2k` |
-| Restart | `sudo systemctl restart why2k` |
-| Enable at boot | `sudo systemctl enable why2k` (the installer does this) |
-| Tail logs | `sudo journalctl -u why2k -f` |
-| Last 200 lines | `sudo journalctl -u why2k -n 200` |
-| Logs since boot | `sudo journalctl -u why2k -b` |
+| Status | `systemctl status why2k` |
+| Start | `systemctl start why2k` |
+| Stop | `systemctl stop why2k` |
+| Restart | `systemctl restart why2k` |
+| Enable at boot | `systemctl enable why2k` (the installer does this) |
+| Tail logs | `journalctl -u why2k -f` |
+| Last 200 lines | `journalctl -u why2k -n 200` |
+| Logs since boot | `journalctl -u why2k -b` |
 
 ## 7. Updating
 
-Re-run the installer — it does `git fetch` + `git reset --hard origin/main`, reinstalls deps, and reloads systemd:
+Re-run the installer — it does `git fetch` + `git reset --hard origin/${BRANCH}`, reinstalls deps, and reloads systemd. Override `BRANCH` to deploy a non-`main` branch.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | sudo bash
-sudo systemctl restart why2k
+curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | bash
+systemctl restart why2k
 ```
 
-Or update in place:
+Or update in place (`runuser` avoids the `sudo` dependency on minimal Debian):
 
 ```bash
-sudo -u why2k git -C /opt/why2k pull
-sudo -u why2k /opt/why2k/.venv/bin/pip install -r /opt/why2k/requirements.txt
-sudo systemctl restart why2k
+runuser -u why2k -- git -C /opt/why2k pull
+runuser -u why2k -- /opt/why2k/.venv/bin/pip install -r /opt/why2k/requirements.txt
+systemctl restart why2k
 ```
 
 ## 8. Layout reference

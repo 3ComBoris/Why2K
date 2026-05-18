@@ -17,6 +17,7 @@ ENV_FILE="${ENV_DIR}/env"
 SERVICE_NAME="why2k"
 
 REPO_URL="${REPO_URL:-https://github.com/3ComBoris/Why2K.git}"
+BRANCH="${BRANCH:-main}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -54,14 +55,16 @@ fi
 
 echo ">>> Preparing ${APP_DIR}"
 mkdir -p "${APP_DIR}"
-chown "${APP_USER}:${APP_USER}" "${APP_DIR}"
+# Recursive: a previous root-owned manual clone here would leave files that
+# the runuser-as-why2k git/venv/pip commands below can't touch.
+chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 
-echo ">>> Cloning / updating repo at ${APP_DIR}"
+echo ">>> Cloning / updating repo at ${APP_DIR} (branch ${BRANCH})"
 if [[ -d "${APP_DIR}/.git" ]]; then
-  as_app_user git -C "${APP_DIR}" fetch --depth=1 origin main
-  as_app_user git -C "${APP_DIR}" reset --hard origin/main
+  as_app_user git -C "${APP_DIR}" fetch --depth=1 origin "${BRANCH}"
+  as_app_user git -C "${APP_DIR}" reset --hard "origin/${BRANCH}"
 else
-  as_app_user git clone --depth=1 "${REPO_URL}" "${APP_DIR}"
+  as_app_user git clone --depth=1 --branch "${BRANCH}" "${REPO_URL}" "${APP_DIR}"
 fi
 
 echo ">>> Building venv and installing requirements"
