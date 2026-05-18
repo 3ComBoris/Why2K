@@ -134,6 +134,18 @@ async def connect_to_voice():
                 if not isinstance(channel, discord.VoiceChannel):
                     await fail_startup(f"Error: Channel {CHANNEL_ID} is not a voice channel.")
                     return
+
+                # If we already have a VoiceClient attached to a different
+                # channel (e.g., admin moved the bot), move it back instead
+                # of calling connect() — which would raise ClientException
+                # "Already connected to a voice channel" and be treated as
+                # non-retryable.
+                existing = next(iter(client.voice_clients), None)
+                if existing is not None:
+                    await existing.move_to(channel)
+                    print(f"Moved voice client back to: {channel.name}")
+                    return
+
                 await channel.connect(self_deaf=True, self_mute=True)
                 print(f"Joined voice channel: {channel.name}")
                 return
@@ -213,6 +225,35 @@ async def on_ready():
 
     if client.voice_connect_task is None or client.voice_connect_task.done():
         client.voice_connect_task = asyncio.create_task(connect_to_voice())
+
+
+@client.event
+async def on_voice_state_update(member, before, after):
+    # discord.py's VoiceClient runs its own internal reconnect loop on voice
+    # WS drops; once it gives up, the VoiceClient is removed from
+    # client.voice_clients and nothing re-triggers our connect logic
+    # (on_ready only fires on full gateway reconnect, not voice-only drops).
+    # Watch our own voice state and re-spawn connect_to_voice whenever we
+    # leave the target channel.
+    if client.user is None or member.id != client.user.id:
+        return
+
+    before_channel_id = before.channel.id if before.channel else None
+    after_channel_id = after.channel.id if after.channel else None
+
+    if before_channel_id != after_channel_id:
+        print(
+            f"Voice state changed: channel {before_channel_id} -> "
+            f"{after_channel_id} (target {CHANNEL_ID})"
+        )
+
+    if after_channel_id == CHANNEL_ID:
+        return
+
+    if before_channel_id == CHANNEL_ID:
+        print(f"Voice disconnected from channel {CHANNEL_ID}; reconnecting.")
+        if client.voice_connect_task is None or client.voice_connect_task.done():
+            client.voice_connect_task = asyncio.create_task(connect_to_voice())
 
 
 async def main():
