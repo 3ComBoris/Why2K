@@ -7,6 +7,7 @@ from typing import Optional
 
 import discord
 from dotenv import load_dotenv
+from voice_resilience import ResilientVoiceClient
 
 load_dotenv()
 
@@ -171,7 +172,9 @@ async def connect_to_voice():
                     print(f"Moved voice client back to: {channel.name}")
                     return
 
-                await channel.connect(self_deaf=True, self_mute=True)
+                await channel.connect(
+                    cls=ResilientVoiceClient, self_deaf=True, self_mute=True
+                )
                 print(f"Joined voice channel: {channel.name}")
                 return
             except discord.NotFound:
