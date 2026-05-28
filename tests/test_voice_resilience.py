@@ -39,11 +39,13 @@ def test_targets_pinned_discord_version():
 async def test_voice_disconnect_suppressed_skips_gateway_leave(state):
     st, vc = state
     st._suppress_gateway_leave = True
+    st._disconnected.set()  # stale "set" left over from a prior real disconnect
 
     await st._voice_disconnect()
 
     vc.channel.guild.change_voice_state.assert_not_called()
     assert st.state is ConnectionFlowState.disconnected
+    assert st._disconnected.is_set() is False
 
 
 async def test_voice_disconnect_normal_emits_gateway_leave(state):

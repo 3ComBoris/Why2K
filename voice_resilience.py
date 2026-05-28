@@ -66,6 +66,10 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
             # mid-reconnect, bot.py's on_voice_state_update re-joins as backstop.
             _log.info("Voice media dropped; reconnecting voice in place (no channel leave).")
             self.state = ConnectionFlowState.disconnected
+            # Mirror the base method: keep the _disconnected event in its
+            # not-disconnected state. We send no channel=None, so nothing would
+            # otherwise reset it, leaving a stale "set" from a prior disconnect.
+            self._disconnected.clear()
             return
         await super()._voice_disconnect()
 
