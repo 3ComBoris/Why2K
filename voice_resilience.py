@@ -55,6 +55,15 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
             # gateway OP4 channel=None. Our voice state stays on the channel, so
             # a lone bot never empties it and the call timer holds. The
             # subsequent _connect() re-handshakes the media connection.
+            #
+            # We deliberately do NOT set _expecting_disconnect here: we never
+            # send channel=None, so Discord sends no confirming leave event to
+            # consume the flag. Setting it would leave it stuck True (no event
+            # ever clears it) and swallow a later genuine disconnect. This
+            # mirrors discord.py's own 4015 voice-server-resume path, which
+            # likewise reconnects without touching _expecting_disconnect. If
+            # Discord ever does emit a spurious voice_state_update(channel=None)
+            # mid-reconnect, bot.py's on_voice_state_update re-joins as backstop.
             _log.info("Voice media dropped; reconnecting voice in place (no channel leave).")
             self.state = ConnectionFlowState.disconnected
             return

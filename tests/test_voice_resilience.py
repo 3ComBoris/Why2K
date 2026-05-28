@@ -1,9 +1,9 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
 
-from discord.voice_state import ConnectionFlowState
+from discord.voice_state import ConnectionFlowState, VoiceConnectionState
 
 from voice_resilience import (
     ResilientVoiceClient,
@@ -72,6 +72,24 @@ async def test_disconnect_cleanup_true_leaves(state):
     await st.disconnect(cleanup=True, wait=False)
 
     vc.channel.guild.change_voice_state.assert_awaited_once_with(channel=None)
+    assert st._suppress_gateway_leave is False
+    assert st.state is ConnectionFlowState.disconnected
+
+
+async def test_disconnect_cleanup_false_resets_flag_on_exception(state):
+    st, vc = state
+
+    # If the underlying reconnect-intent teardown raises, the suppression flag
+    # must still be reset by the finally block so it can't leak True into a
+    # later genuine disconnect.
+    with patch.object(
+        VoiceConnectionState,
+        "disconnect",
+        new=AsyncMock(side_effect=RuntimeError("boom")),
+    ):
+        with pytest.raises(RuntimeError):
+            await st.disconnect(cleanup=False)
+
     assert st._suppress_gateway_leave is False
 
 
