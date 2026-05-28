@@ -322,7 +322,7 @@ Run:
 .venv\Scripts\python -m pytest tests/test_voice_resilience.py -q
 ```
 
-Expected: PASS — 6 passed.
+Expected: PASS — 6 passed. (During code review a 7th test — `test_disconnect_cleanup_false_resets_flag_on_exception` — was added, so the file settles at 7 passing.)
 
 - [ ] **Step 5: Commit**
 
@@ -380,7 +380,7 @@ Run:
 .venv\Scripts\python -m pytest -q
 ```
 
-Expected: PASS — 6 passed.
+Expected: PASS — 7 passed.
 
 - [ ] **Step 5: Commit**
 

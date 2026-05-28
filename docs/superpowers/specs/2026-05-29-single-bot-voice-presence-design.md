@@ -1,7 +1,7 @@
 # Single-Bot Continuous Voice Presence — Design
 
 - **Date:** 2026-05-29
-- **Status:** Approved (design); pending implementation plan
+- **Status:** Implemented on branch `feat/voice-in-place-reconnect` (PR #9); pending live validation on the droplet
 - **Component:** `bot.py` voice connection layer
 
 ## Problem
