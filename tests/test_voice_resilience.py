@@ -6,6 +6,7 @@ import pytest
 from discord.voice_state import ConnectionFlowState, VoiceConnectionState
 
 from voice_resilience import (
+    PINNED_DISCORD_VERSION,
     ResilientVoiceClient,
     ResilientVoiceConnectionState,
 )
@@ -33,7 +34,9 @@ def state():
 
 
 def test_targets_pinned_discord_version():
-    assert discord.__version__ == "2.7.1"
+    # Tripwire: the installed discord.py must match the version the module's
+    # internal-coupling was verified against (single source of truth).
+    assert discord.__version__ == PINNED_DISCORD_VERSION
 
 
 async def test_voice_disconnect_suppressed_skips_gateway_leave(state):

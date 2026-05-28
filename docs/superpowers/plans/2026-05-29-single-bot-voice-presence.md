@@ -38,11 +38,17 @@ Verified against discord.py v2.7.1 source (`discord/voice_state.py`):
 
 - **Create** `voice_resilience.py` (repo root, next to `bot.py`) — the `ResilientVoiceConnectionState` + `ResilientVoiceClient` subclasses and the discord.py version guard. One responsibility: keep voice presence continuous across reconnects.
 - **Create** `tests/test_voice_resilience.py` — unit tests for the leave-suppression decision logic.
-- **Create** `tests/conftest.py` — empty marker so pytest puts the repo root on `sys.path`.
+- **Create** `tests/conftest.py` — conventional home for shared pytest fixtures/hooks. (The repo root is placed on `sys.path` via `pythonpath = .` in `pytest.ini`, not by this file.)
 - **Create** `pytest.ini` (repo root) — pytest + asyncio config.
 - **Create** `requirements-dev.txt` (repo root) — dev/test deps on top of the prod pin.
 - **Modify** `bot.py` — import `ResilientVoiceClient` and pass `cls=ResilientVoiceClient` to `channel.connect(...)`.
 - **Modify** `docs/superpowers/specs/2026-05-29-single-bot-voice-presence-design.md` — refine Component 1 to the `cleanup=False` mechanism.
+
+> **Note:** The code blocks in the tasks below are the plan-time snapshot. The
+> committed files are authoritative and include refinements made during code
+> review — e.g. the exported `PINNED_DISCORD_VERSION` constant, a
+> flag-reset-on-exception test, and `_disconnected.clear()` in the suppressed
+> branch.
 
 ---
 
@@ -70,16 +76,19 @@ Create `pytest.ini`:
 ```ini
 [pytest]
 asyncio_mode = auto
+asyncio_default_fixture_loop_scope = function
 pythonpath = .
 testpaths = tests
 ```
 
-- [ ] **Step 3: Create the empty conftest marker**
+- [ ] **Step 3: Create the conftest placeholder for shared fixtures**
 
-Create `tests/conftest.py` with a single comment line:
+Create `tests/conftest.py`. Imports work via `pytest.ini`'s `pythonpath = .`; this file is just the conventional home for shared fixtures/hooks:
 
 ```python
-# Presence of this file marks tests/ as a package root for pytest.
+# Shared pytest fixtures and hooks for the test suite belong here.
+# (The repo root is placed on sys.path via `pythonpath = .` in pytest.ini, so
+# tests can `import voice_resilience` without this file doing anything special.)
 ```
 
 - [ ] **Step 4: Create a virtualenv and install dev deps**

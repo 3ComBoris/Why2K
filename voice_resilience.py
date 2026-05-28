@@ -29,15 +29,18 @@ from discord.voice_state import ConnectionFlowState, VoiceConnectionState
 
 _log = logging.getLogger(__name__)
 
-_PINNED_DISCORD_VERSION = "2.7.1"
+# The discord.py version this module's internal-coupling was verified against.
+# Exported so the test suite can assert the installed version matches (single
+# source of truth — bump here when re-verifying against a new discord.py).
+PINNED_DISCORD_VERSION = "2.7.1"
 
-if discord.__version__ != _PINNED_DISCORD_VERSION:
+if discord.__version__ != PINNED_DISCORD_VERSION:
     _log.warning(
         "voice_resilience targets discord.py %s but %s is installed. The "
         "in-place voice reconnect relies on the "
         "VoiceConnectionState.disconnect(cleanup=False) contract and "
         "_voice_disconnect internals; re-verify against this version.",
-        _PINNED_DISCORD_VERSION,
+        PINNED_DISCORD_VERSION,
         discord.__version__,
     )
 
