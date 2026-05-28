@@ -66,27 +66,31 @@ the in-place path keeps the bot continuously present.
 
 ### Component 1 — In-place voice reconnect (the core fix)
 
-Replace the default reconnect behaviour for transient transport close codes so
-they reconnect the media socket **without** emitting the gateway leave.
+Suppress the gateway "leave" for reconnect-intent teardowns so the media
+connection is rebuilt without the bot ever leaving the channel.
 
-- Provide a custom `VoiceClient` subclass and connect with
-  `channel.connect(cls=..., self_deaf=True, self_mute=True)`.
-- The reconnect/close-code decision lives in discord.py's
-  `VoiceConnectionState._poll_voice_ws`. Override it (via a
-  `VoiceConnectionState` subclass wired in through the custom `VoiceClient`, or
-  an equivalent targeted hook) so that standard WebSocket close codes —
-  `1001`, `1006`, and other transient `1xxx` codes except a clean `1000` — take
-  the **resume-in-place** path (the same path `4015` uses) rather than
-  `disconnect()` → `change_voice_state(channel=None)`.
-- Use discord.py's own primitives (`soft_disconnect()` + reconnect / `_connect`)
-  so that, even when the media session must be fully re-handshaked, the gateway
-  voice state is **never** reset to `channel=None`. The bot stays in the
-  participant list throughout.
+- Provide a custom `VoiceClient` subclass (`ResilientVoiceClient`) whose
+  `create_connection_state()` returns a custom
+  `ResilientVoiceConnectionState`, and connect with
+  `channel.connect(cls=ResilientVoiceClient, self_deaf=True, self_mute=True)`.
+- In `ResilientVoiceConnectionState`, override `disconnect()`: discord.py calls
+  `disconnect(cleanup=False)` **only** for reconnect-intent teardowns
+  (`_poll_voice_ws` after an unhandled close code such as `1001`/`1006`, and
+  `_inner_connect` retries). For those, set a flag so the gateway leave is
+  suppressed; `cleanup=True` (genuine disconnects) is delegated unchanged.
+- Override `_voice_disconnect()`: when the flag is set, set the connection state
+  to `disconnected` but skip `change_voice_state(channel=None)`. The following
+  `_connect()` re-sends `change_voice_state(channel=channel)`, re-handshaking
+  the media while the gateway voice state never left the channel. The flag is
+  reset in a `finally` so it cannot leak across calls. `_expecting_disconnect`
+  is intentionally left untouched (mirrors discord.py's own `4015` resume path);
+  Component 2 is the backstop if Discord ever emits a spurious `channel=None`.
 
-**Scope guard:** Discord-specific `4xxx` codes keep discord.py's existing
-semantics. In particular, codes that genuinely mean "you are no longer in this
-channel" (e.g. `4014` kicked / channel deleted) must NOT be forced into an
-infinite in-place reconnect loop — they fall through to Component 2.
+**Scope:** This naturally covers `1001`, `1006`, and any other transient code
+that falls through to discord.py's generic reconnect, while leaving genuine
+disconnects untouched: normal close (`1000`), kick / channel-deleted
+(`4014`/`4022` with the disconnect confirmed), and ratelimit (`4021`) all use
+`cleanup=True` and still leave the channel as they should.
 
 ### Component 2 — Voice-state re-assert safety net (already partly present)
 
@@ -95,10 +99,11 @@ admin move, a `4xxx` that tears down state), rejoin as fast as possible.
 
 - Keep the existing `on_voice_state_update` handler ([bot.py:255]) that
   re-spawns `connect_to_voice()` when the bot leaves the target channel.
-- **Add:** re-assert voice state on gateway resume/ready, since a full
-  re-IDENTIFY (as opposed to a RESUME) drops voice state. The production log
-  shows the gateway almost always RESUMEs (which preserves voice state), so this
-  is a backstop, not the primary path.
+- The existing `on_ready` handler ([bot.py:227]) already re-spawns
+  `connect_to_voice()` after a full gateway re-IDENTIFY — the case that drops
+  voice state — so no new resume handler is required. A RESUME preserves voice
+  state and needs nothing; the production log shows the gateway almost always
+  RESUMEs. These existing handlers are the backstop, not the primary path.
 
 This net accepts a possible brief blip in those rare cases; Component 1 removes
 the blip for the common case.
