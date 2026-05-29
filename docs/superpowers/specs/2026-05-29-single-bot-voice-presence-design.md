@@ -97,9 +97,9 @@ disconnects untouched: normal close (`1000`), kick / channel-deleted
 For any path that *does* result in a true leave (rare: hard gateway re-IDENTIFY,
 admin move, a `4xxx` that tears down state), rejoin as fast as possible.
 
-- Keep the existing `on_voice_state_update` handler ([bot.py:255]) that
+- Keep the existing `on_voice_state_update` handler in `bot.py` that
   re-spawns `connect_to_voice()` when the bot leaves the target channel.
-- The existing `on_ready` handler ([bot.py:227]) already re-spawns
+- The existing `on_ready` handler in `bot.py` already re-spawns
   `connect_to_voice()` after a full gateway re-IDENTIFY — the case that drops
   voice state — so no new resume handler is required. A RESUME preserves voice
   state and needs nothing; the production log shows the gateway almost always
@@ -111,7 +111,7 @@ the blip for the common case.
 ### What stays unchanged
 
 - `connect_to_voice()` retry/backoff and its fatal-vs-retryable classification.
-- The short-session **circuit breaker** ([bot.py:55]). With in-place reconnect,
+- The short-session **circuit breaker** in `bot.py`. With in-place reconnect,
   healthy sessions stay long-lived, so it should effectively never trip; it
   remains as a signal for genuine UDP-egress failure.
 - The health-check server and readiness semantics.
@@ -148,7 +148,8 @@ validated against the live channel:
 - **Couples to discord.py internals** (`VoiceConnectionState._poll_voice_ws`,
   `soft_disconnect`). Mitigation: discord.py is pinned `==2.7.1`; this matches
   the project's existing internal-coupling posture (see the retryable-exception
-  string matching at [bot.py:78] with its "revisit on version bump" comment).
+  string matching in `bot.py` (the `_RETRYABLE_CLIENT_EXCEPTION_PHRASES` list)
+  with its "revisit on version bump" comment).
   Add a comment tying the override to the pinned version, and a re-check item on
   any discord.py bump.
 - **Residual hard-disconnect blip.** A non-resumable gateway disconnect can

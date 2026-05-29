@@ -345,11 +345,11 @@ git commit -m "Add leave-suppressing voice client for in-place reconnects"
 ## Task 3: Wire `ResilientVoiceClient` into the bot
 
 **Files:**
-- Modify: `bot.py` (import near the top with the other imports; the `channel.connect(...)` call at line 174)
+- Modify: `bot.py` (add the import near the top with the other imports; update the `channel.connect(...)` call inside `connect_to_voice()`)
 
 - [ ] **Step 1: Add the import**
 
-In `bot.py`, after the `import discord` / `from dotenv import load_dotenv` block (around line 8-9), add:
+In `bot.py`, after the `import discord` / `from dotenv import load_dotenv` block, add:
 
 ```python
 from voice_resilience import ResilientVoiceClient
@@ -357,7 +357,7 @@ from voice_resilience import ResilientVoiceClient
 
 - [ ] **Step 2: Pass the custom client class to connect()**
 
-In `bot.py`, in `connect_to_voice()`, change the connect call (currently around line 174):
+In `bot.py`, in `connect_to_voice()`, change the connect call (the `await channel.connect(self_deaf=True, self_mute=True)` line):
 
 ```python
                 await channel.connect(self_deaf=True, self_mute=True)
@@ -509,4 +509,3 @@ Expected: `clean`. The in-place reconnect should keep sessions long-lived, so th
 - **Placeholder scan:** none — all code and commands are concrete.
 - **Type/name consistency:** `ResilientVoiceConnectionState`, `ResilientVoiceClient`, `_suppress_gateway_leave`, `create_connection_state`, and `_voice_disconnect` are used identically across `voice_resilience.py`, the tests, and `bot.py`.
 - **Residual risk (documented, accepted):** a hard non-resumable gateway disconnect can still cause a brief leave; if a transient reconnect ultimately fails after retries, the bot's gateway state remains in-channel without media until Discord drops it (then `on_voice_state_update` in `bot.py` re-spawns the connect). Only a second presence is fully bulletproof, which the operator declined.
-```
