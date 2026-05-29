@@ -22,6 +22,10 @@ logging.getLogger("discord").setLevel(logging.WARNING)
 logging.getLogger("discord.voice_state").setLevel(logging.DEBUG)
 logging.getLogger("discord.voice_client").setLevel(logging.DEBUG)
 logging.getLogger("discord.gateway").setLevel(logging.INFO)
+# voice_resilience logs its in-place reconnect at INFO; the root logger is
+# WARNING, so raise this one explicitly or that line would be filtered out of
+# journald — which the live-validation steps rely on seeing.
+logging.getLogger("voice_resilience").setLevel(logging.INFO)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
