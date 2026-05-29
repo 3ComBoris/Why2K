@@ -161,9 +161,15 @@ validated against the live channel:
 
 ## Testing approach
 
-- **Unit:** the close-code → path decision is pure logic; test that `1001`,
-  `1006`, transient `1xxx` map to in-place reconnect and that `1000` and the
-  kicked/channel-gone codes do not.
+- **Unit:** the implementation keys on `cleanup`, not on close codes, so the
+  tests exercise the suppression mechanism directly: `_voice_disconnect()` skips
+  the gateway leave when the suppress flag is set and emits it otherwise;
+  `disconnect(cleanup=False)` suppresses the leave while `cleanup=True` leaves
+  normally; the suppress flag resets via `finally` even when the teardown
+  raises; and `ResilientVoiceClient.create_connection_state()` returns the
+  resilient state. (Mapping specific close codes to these paths is a property of
+  discord.py's `_poll_voice_ws`, not of this module, so it is covered by live
+  validation rather than unit tests.)
 - **Integration / live:** the Validation section above.
 
 ## Rollback

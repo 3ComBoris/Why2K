@@ -54,10 +54,15 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
 
     async def _voice_disconnect(self) -> None:
         if self._suppress_gateway_leave:
-            # Reconnect-in-place: drop the media connection but do NOT emit the
-            # gateway OP4 channel=None. Our voice state stays on the channel, so
-            # a lone bot never empties it and the call timer holds. The
-            # subsequent _connect() re-handshakes the media connection.
+            # Suppress ONLY the gateway leave. We skip the base
+            # _voice_disconnect() whose sole side effects are the OP4
+            # change_voice_state(channel=None) and _expecting_disconnect. The
+            # actual media teardown (ws.close(), socket.close(),
+            # socket_reader.pause()) lives in the base disconnect() that called
+            # us, which we still run via super().disconnect() — so the media
+            # connection IS dropped, and the subsequent _connect() re-handshakes
+            # it. Our gateway voice state never leaves the channel, so a lone bot
+            # never empties it and the call timer holds.
             #
             # We deliberately do NOT set _expecting_disconnect here: we never
             # send channel=None, so Discord sends no confirming leave event to
