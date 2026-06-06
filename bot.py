@@ -7,6 +7,7 @@ from typing import Optional
 
 import discord
 from dotenv import load_dotenv
+from voice_resilience import ResilientVoiceClient
 
 load_dotenv()
 
@@ -21,6 +22,10 @@ logging.getLogger("discord").setLevel(logging.WARNING)
 logging.getLogger("discord.voice_state").setLevel(logging.DEBUG)
 logging.getLogger("discord.voice_client").setLevel(logging.DEBUG)
 logging.getLogger("discord.gateway").setLevel(logging.INFO)
+# voice_resilience logs its resume attempts at INFO; the root logger is
+# WARNING, so raise this one explicitly or those lines would be filtered out
+# of journald — which the live-validation grep relies on seeing.
+logging.getLogger("voice_resilience").setLevel(logging.INFO)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
@@ -171,7 +176,9 @@ async def connect_to_voice():
                     print(f"Moved voice client back to: {channel.name}")
                     return
 
-                await channel.connect(self_deaf=True, self_mute=True)
+                await channel.connect(
+                    cls=ResilientVoiceClient, self_deaf=True, self_mute=True
+                )
                 print(f"Joined voice channel: {channel.name}")
                 return
             except discord.NotFound:
