@@ -59,9 +59,9 @@ if discord.__version__ != PINNED_DISCORD_VERSION:
 class ResilientVoiceConnectionState(VoiceConnectionState):
     """VoiceConnectionState that attempts OP 7 RESUME before leave-rejoin."""
 
-    # Total seconds to allow for the OP 7 RESUME → OP 9 RESUMED round trip
-    # (covers WSS open + RESUME send + RESUMED receive). On timeout the
-    # helper falls back to upstream leave-rejoin.
+    # Budget per phase: the WSS-open phase and the RESUMED-wait phase each
+    # get RESUME_TIMEOUT seconds, so the worst-case wall time before falling
+    # back to upstream leave-rejoin is 2 × RESUME_TIMEOUT (20 s at the default).
     RESUME_TIMEOUT: float = 10.0
 
     async def _try_in_place_resume(self) -> bool:
@@ -99,6 +99,13 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
             # We call from_connection_state directly (bypassing
             # _connect_websocket) so we can install the resume-watching hook
             # for THIS attempt without mutating self.hook.
+            #
+            # Caveat: if wait_for cancels from_connection_state after its
+            # internal ws_connect() succeeds but before it returns (e.g. during
+            # the ws.resume() send), the aiohttp socket leaks until GC. This is
+            # a limitation of the discord.py API — from_connection_state has no
+            # cleanup path for that window. The bot still recovers via the
+            # leave-rejoin fallback; only the orphan socket is the cost.
             new_ws = await asyncio.wait_for(
                 DiscordVoiceWebSocket.from_connection_state(
                     self,
@@ -265,6 +272,7 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
                         resume=False,
                     )
                 except asyncio.TimeoutError:
+                    # at this point we've retried 5 times... let's continue the loop.
                     _log.warning("Could not connect to voice... Retrying...")
                     continue
 

@@ -122,6 +122,46 @@ async def test_try_resume_returns_false_on_connection_closed(state):
     vc.channel.guild.change_voice_state.assert_not_called()
 
 
+async def test_watch_for_resumed_chains_original_hook(state):
+    # When state.hook is set (e.g. for diagnostics), our resume-watcher must
+    # delegate to it so the chain isn't silently broken.
+    st, vc = state
+    st.endpoint = "discord.media:8443"
+    st.session_id = "sess"
+    st.token = "tok"
+    st.server_id = 12345
+    st.ws = MISSING
+
+    chained = []
+
+    async def original_hook(ws, msg):
+        chained.append(msg)
+
+    st.hook = original_hook
+
+    captured = {}
+    new_ws = MagicMock()
+    new_ws.close = AsyncMock()
+
+    async def fake_from_connection_state(state, *, resume, hook, seq_ack):
+        captured["hook"] = hook
+        return new_ws
+
+    async def fake_poll_event():
+        await captured["hook"](new_ws, {"op": DiscordVoiceWebSocket.RESUMED, "d": {}})
+
+    new_ws.poll_event = AsyncMock(side_effect=fake_poll_event)
+
+    with patch.object(
+        DiscordVoiceWebSocket, "from_connection_state", new=fake_from_connection_state
+    ):
+        result = await st._try_in_place_resume()
+
+    assert result is True
+    assert len(chained) == 1
+    assert chained[0]["op"] == DiscordVoiceWebSocket.RESUMED
+
+
 async def test_try_resume_returns_false_on_timeout(state):
     st, vc = state
     st.endpoint = "discord.media:8443"
