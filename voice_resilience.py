@@ -74,7 +74,9 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
         gateway voice-state change, so a False return leaves the gateway
         voice state untouched.
         """
-        if not (self.endpoint and self.session_id and self.token):
+        if not (
+            self.endpoint and self.session_id and self.token and self.server_id
+        ):
             return False
 
         resumed_event = asyncio.Event()
