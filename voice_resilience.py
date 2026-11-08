@@ -59,9 +59,9 @@ if discord.__version__ != PINNED_DISCORD_VERSION:
 class ResilientVoiceConnectionState(VoiceConnectionState):
     """VoiceConnectionState that attempts OP 7 RESUME before leave-rejoin."""
 
-    # Budget per phase: the WSS-open phase and the RESUMED-wait phase each
-    # get RESUME_TIMEOUT seconds, so the worst-case wall time before falling
-    # back to upstream leave-rejoin is 2 × RESUME_TIMEOUT (20 s at the default).
+    # One budget for the whole attempt — opening the WSS, sending OP 7 and
+    # waiting for OP 9 RESUMED all share a single deadline — so a failed
+    # attempt delays the upstream leave-rejoin fallback by at most this long.
     RESUME_TIMEOUT: float = 10.0
 
     async def _try_in_place_resume(self) -> bool:
@@ -96,6 +96,8 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
         if previous_ws is not MISSING:
             seq_ack = previous_ws.seq_ack
 
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.RESUME_TIMEOUT
         try:
             # Open a fresh WSS to the cached endpoint and send OP 7 RESUME.
             # We call from_connection_state directly (bypassing
@@ -119,9 +121,7 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
             )
 
             # Drive poll_event until either RESUMED is seen (success) or the
-            # WS closes / we hit the deadline (failure).
-            loop = asyncio.get_running_loop()
-            deadline = loop.time() + self.RESUME_TIMEOUT
+            # WS closes / we hit the shared deadline (failure).
             while not resumed_event.is_set():
                 remaining = deadline - loop.time()
                 if remaining <= 0:

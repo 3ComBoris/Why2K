@@ -191,6 +191,42 @@ async def test_try_resume_returns_false_on_timeout(state):
     vc.channel.guild.change_voice_state.assert_not_called()
 
 
+async def test_try_resume_bounds_whole_attempt_by_one_timeout(state):
+    # The WSS open and the wait for OP 9 RESUMED share a single deadline, so a
+    # slow open followed by a hang can't stretch the attempt to 2x the budget.
+    st, _ = state
+    st.endpoint = "discord.media:8443"
+    st.session_id = "sess"
+    st.token = "tok"
+    st.server_id = 12345
+    st.ws = MISSING
+
+    new_ws = MagicMock()
+    new_ws.close = AsyncMock()
+
+    async def slow_from_connection_state(state, *, resume, hook, seq_ack):
+        await asyncio.sleep(st.RESUME_TIMEOUT * 0.8)
+        return new_ws
+
+    async def hang_forever():
+        await asyncio.sleep(60)
+
+    new_ws.poll_event = AsyncMock(side_effect=hang_forever)
+
+    loop = asyncio.get_running_loop()
+    with patch.object(
+        DiscordVoiceWebSocket, "from_connection_state", new=slow_from_connection_state
+    ):
+        started = loop.time()
+        result = await st._try_in_place_resume()
+        elapsed = loop.time() - started
+
+    assert result is False
+    # One budget: ~1.0x RESUME_TIMEOUT. Per-phase budgets would take ~1.8x.
+    assert elapsed < st.RESUME_TIMEOUT * 1.4
+    new_ws.close.assert_awaited()
+
+
 async def test_try_resume_returns_false_on_open_failure(state):
     st, vc = state
     st.endpoint = "discord.media:8443"
