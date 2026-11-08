@@ -211,6 +211,131 @@ async def test_try_resume_returns_false_on_open_failure(state):
     vc.channel.guild.change_voice_state.assert_not_called()
 
 
+async def test_try_resume_closes_new_ws_and_propagates_on_cancel(state):
+    # CancelledError is a BaseException (3.8+), so the helper's `except
+    # Exception` never sees it. If the poller task is cancelled while waiting
+    # for RESUMED, the half-open resume WS must still be closed — its
+    # keep-alive thread starts on HELLO and only close() stops it — and the
+    # cancellation must propagate rather than be turned into a False return.
+    st, vc = state
+    st.endpoint = "discord.media:8443"
+    st.session_id = "sess"
+    st.token = "tok"
+    st.server_id = 12345
+    st.ws = MISSING
+
+    new_ws = MagicMock()
+    new_ws.close = AsyncMock()
+    polling = asyncio.Event()
+
+    async def fake_from_connection_state(state, *, resume, hook, seq_ack):
+        return new_ws
+
+    async def hang_until_cancelled():
+        polling.set()
+        await asyncio.sleep(60)
+
+    new_ws.poll_event = AsyncMock(side_effect=hang_until_cancelled)
+
+    with patch.object(
+        DiscordVoiceWebSocket, "from_connection_state", new=fake_from_connection_state
+    ):
+        task = asyncio.create_task(st._try_in_place_resume())
+        await polling.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    new_ws.close.assert_awaited()
+    vc.channel.guild.change_voice_state.assert_not_called()
+
+
+def _closing_ws(code):
+    ws = MagicMock()
+    ws.close = AsyncMock()
+    ws.poll_event = AsyncMock(
+        side_effect=ConnectionClosed(MagicMock(), shard_id=None, code=code)
+    )
+    return ws
+
+
+def _terminal_ws():
+    # _poll_voice_ws returns when poll_event raises CancelledError, so
+    # installing this WS ends the loop on its next iteration.
+    ws = MagicMock()
+    ws.close = AsyncMock()
+    ws.poll_event = AsyncMock(side_effect=asyncio.CancelledError)
+    return ws
+
+
+def _wire_poller(st, *, close_code, resume_result):
+    """Drive one voice WS close through _poll_voice_ws with every exit mocked.
+
+    Both the resume path and the leave-rejoin path install a terminal WS, so
+    the loop ends after the first close whichever branch runs — a routing
+    regression fails the assertions instead of hanging the test.
+    """
+    st.ws = _closing_ws(close_code)
+
+    async def fake_resume():
+        if resume_result:
+            st.ws = _terminal_ws()
+        return resume_result
+
+    async def fake_connect(**kwargs):
+        st.ws = _terminal_ws()
+
+    st._try_in_place_resume = AsyncMock(side_effect=fake_resume)
+    st.disconnect = AsyncMock()
+    st._connect = AsyncMock(side_effect=fake_connect)
+
+
+@pytest.fixture
+def no_backoff():
+    # Upstream sleeps a random backoff before leave-rejoin; skip it.
+    with patch("voice_resilience.ExponentialBackoff") as backoff_cls:
+        backoff_cls.return_value.delay.return_value = 0
+        yield
+
+
+@pytest.mark.parametrize("code", [1001, 1006])
+async def test_poll_resumes_in_place_on_transient_close(state, no_backoff, code):
+    st, _ = state
+    _wire_poller(st, close_code=code, resume_result=True)
+
+    await st._poll_voice_ws(reconnect=True)
+
+    st._try_in_place_resume.assert_awaited_once()
+    # A confirmed resume must skip upstream's leave-rejoin entirely.
+    st.disconnect.assert_not_awaited()
+    st._connect.assert_not_awaited()
+
+
+async def test_poll_falls_back_to_leave_rejoin_when_resume_fails(state, no_backoff):
+    st, _ = state
+    _wire_poller(st, close_code=1006, resume_result=False)
+
+    await st._poll_voice_ws(reconnect=True)
+
+    st._try_in_place_resume.assert_awaited_once()
+    st.disconnect.assert_awaited_once_with(cleanup=False)
+    st._connect.assert_awaited_once()
+    assert st._connect.await_args.kwargs["resume"] is False
+
+
+async def test_poll_skips_resume_for_other_close_codes(state, no_backoff):
+    # 4006 isn't one of upstream's special-cased codes, so it reaches the same
+    # generic fall-through as 1001/1006 — but must not attempt a resume.
+    st, _ = state
+    _wire_poller(st, close_code=4006, resume_result=True)
+
+    await st._poll_voice_ws(reconnect=True)
+
+    st._try_in_place_resume.assert_not_awaited()
+    st.disconnect.assert_awaited_once_with(cleanup=False)
+    st._connect.assert_awaited_once()
+
+
 def test_create_connection_state_returns_resilient():
     # VoiceClient.__init__ requires PyNaCl/davey and a real client, so bypass
     # it with __new__ and call the factory directly — it only needs `self`

@@ -127,6 +127,17 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
                 if remaining <= 0:
                     raise asyncio.TimeoutError("OP 9 RESUMED not received in time")
                 await asyncio.wait_for(new_ws.poll_event(), timeout=remaining)
+        except asyncio.CancelledError:
+            # CancelledError is a BaseException (3.8+), so the handler below
+            # never sees it. Close the half-open resume WS — its keep-alive
+            # thread starts on HELLO and only close() stops it — then let the
+            # cancellation propagate.
+            if new_ws is not None:
+                try:
+                    await new_ws.close()
+                except Exception:
+                    pass
+            raise
         except Exception as exc:
             _log.info(
                 "Voice WS resume attempt failed (%s: %s); falling back to leave-rejoin.",
