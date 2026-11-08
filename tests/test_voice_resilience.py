@@ -227,6 +227,61 @@ async def test_try_resume_bounds_whole_attempt_by_one_timeout(state):
     new_ws.close.assert_awaited()
 
 
+def _disconnected_meanwhile(st):
+    # VoiceClient.disconnect() marks the state disconnected but doesn't cancel
+    # the poller, so it can land mid-attempt.
+    st.state = ConnectionFlowState.disconnected
+
+
+def _reconnected_meanwhile(st):
+    # Any other (re)connect installs its own WS on the state.
+    st.ws = MagicMock()
+
+
+@pytest.mark.parametrize(
+    "supersede", [_disconnected_meanwhile, _reconnected_meanwhile]
+)
+async def test_try_resume_discards_result_if_superseded(state, supersede):
+    # If something else took over the connection while we waited for OP 9,
+    # a late RESUMED must not revive it: discard the new WS, touch nothing.
+    st, vc = state
+    st.endpoint = "discord.media:8443"
+    st.session_id = "sess"
+    st.token = "tok"
+    st.server_id = 12345
+    st.ws = MISSING
+    st.state = ConnectionFlowState.connected  # the poller runs while connected
+
+    captured = {}
+    new_ws = MagicMock()
+    new_ws.close = AsyncMock()
+
+    async def fake_from_connection_state(state, *, resume, hook, seq_ack):
+        captured["hook"] = hook
+        return new_ws
+
+    after_supersede = {}
+
+    async def superseded_then_resumed():
+        supersede(st)
+        after_supersede["state"], after_supersede["ws"] = st.state, st.ws
+        await captured["hook"](new_ws, {"op": DiscordVoiceWebSocket.RESUMED, "d": {}})
+
+    new_ws.poll_event = AsyncMock(side_effect=superseded_then_resumed)
+
+    with patch.object(
+        DiscordVoiceWebSocket, "from_connection_state", new=fake_from_connection_state
+    ):
+        result = await st._try_in_place_resume()
+
+    assert result is False
+    # Whatever the superseding action left in place must stay untouched.
+    assert st.state is after_supersede["state"]
+    assert st.ws is after_supersede["ws"]
+    new_ws.close.assert_awaited()
+    vc.channel.guild.change_voice_state.assert_not_called()
+
+
 async def test_try_resume_returns_false_on_open_failure(state):
     st, vc = state
     st.endpoint = "discord.media:8443"
@@ -357,6 +412,20 @@ async def test_poll_falls_back_to_leave_rejoin_when_resume_fails(state, no_backo
     st.disconnect.assert_awaited_once_with(cleanup=False)
     st._connect.assert_awaited_once()
     assert st._connect.await_args.kwargs["resume"] is False
+
+
+async def test_poll_skips_resume_when_reconnect_disabled(state, no_backoff):
+    # With reconnect=False upstream disconnects and re-raises. The resume
+    # branch must not keep alive a connection the caller chose not to recover.
+    st, _ = state
+    _wire_poller(st, close_code=1006, resume_result=True)
+
+    with pytest.raises(ConnectionClosed):
+        await st._poll_voice_ws(reconnect=False)
+
+    st._try_in_place_resume.assert_not_awaited()
+    st.disconnect.assert_awaited_once_with()
+    st._connect.assert_not_awaited()
 
 
 async def test_poll_skips_resume_for_other_close_codes(state, no_backoff):

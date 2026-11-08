@@ -14,8 +14,14 @@ rejects the resume (e.g. close code 4006 "session no longer valid"), if the
 WSS open fails, or if RESUMED doesn't arrive within RESUME_TIMEOUT seconds, the
 helper cleans up and returns False — and the upstream `_poll_voice_ws` code
 that we copied verbatim around the new branch falls through to discord.py's
-existing leave-rejoin. That fallback is the same ~2s blip the bot has had all
-along: no worse than baseline in any failure mode.
+existing leave-rejoin — the same ~2s blip the bot has had all along.
+
+A failed attempt starts that fallback up to RESUME_TIMEOUT later than stock
+discord.py would. That delay is deliberate: the attempt sends no gateway
+voice-state change, so the bot stays in the channel throughout (production
+logs show Discord keeping it listed for 30 s with no voice WS). Media is down
+for longer, but the bot is self-deaf/self-mute; channel presence — the only
+thing this module protects — is never worse than baseline.
 
 Coupled to discord.py internals (the copied `_poll_voice_ws`, the
 `DiscordVoiceWebSocket.from_connection_state` signature, the OP 9 RESUMED
@@ -91,6 +97,7 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
                 await original_hook(ws, msg)
 
         previous_ws = self.ws
+        entry_state = self.state
         new_ws: Optional[DiscordVoiceWebSocket] = None
         seq_ack = -1
         if previous_ws is not MISSING:
@@ -149,6 +156,21 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
                     await new_ws.close()
                 except Exception:
                     pass
+            return False
+
+        if self.state is not entry_state or self.ws is not previous_ws:
+            # Something else took over this connection while we waited — e.g.
+            # VoiceClient.disconnect(), which marks the state disconnected but
+            # does not cancel this poller. Installing the resumed WS now would
+            # revive a connection that was deliberately torn down, so discard
+            # it and leave the state as the other actor set it.
+            _log.info(
+                "Voice connection changed during resume attempt; discarding resumed WS."
+            )
+            try:
+                await new_ws.close()
+            except Exception:
+                pass
             return False
 
         # Resume positively confirmed. Install the new WS, mark connected,
@@ -252,7 +274,9 @@ class ResilientVoiceConnectionState(VoiceConnectionState):
                     # the upstream leave-rejoin path. If resume succeeds we
                     # continue the loop on the new WS; if it fails we let the
                     # rest of upstream's logic run (identical to baseline).
-                    if exc.code in (1001, 1006):
+                    # Gated on `reconnect` so reconnect=False keeps upstream's
+                    # disconnect-and-raise behaviour.
+                    if reconnect and exc.code in (1001, 1006):
                         _log.info(
                             "Attempting in-place voice WS resume for close code %d.",
                             exc.code,
