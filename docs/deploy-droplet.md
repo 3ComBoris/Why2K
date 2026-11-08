@@ -201,5 +201,3 @@ REPO_URL=git@github.com:3ComBoris/Why2K.git bash /tmp/why2k-install.sh
 **Service won't start.** `journalctl -u why2k -n 50` will show the Python error. Most common: `DISCORD_TOKEN is not set.` (or `VOICE_CHANNEL_ID is not set.`). Fill it in `/etc/why2k/env`, which the unit loads via `EnvironmentFile=`. A `.env` file in `/opt/why2k` does **not** work here: systemd sets every variable from `/etc/why2k/env` before the bot starts — including the installer's empty `DISCORD_TOKEN=` template line — and the bot's `.env` loader never overrides a variable that's already set, even to an empty value.
 
 **Bot logs in but voice still drops every 30s.** Confirm with `ss -ulnp | grep python` that the bot has bound a local UDP port, and `iptables -L OUTPUT` doesn't reject UDP. On a standard droplet with default `ufw` outbound is unrestricted — if you've tightened it, allow outbound UDP to Discord's voice regions.
-
-**`Voice sessions are dropping within 60s` followed by a 503 health response.** The circuit breaker tripped (5 consecutive short sessions). The droplet's outbound UDP isn't reaching Discord. Check firewall rules and any VPN/proxy on the host.
