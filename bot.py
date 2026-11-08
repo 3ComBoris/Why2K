@@ -27,13 +27,19 @@ logging.getLogger("discord.gateway").setLevel(logging.INFO)
 # of journald — which the live-validation grep relies on seeing.
 logging.getLogger("voice_resilience").setLevel(logging.INFO)
 
+# Under systemd the values come from /etc/why2k/env (EnvironmentFile=), which
+# sets every variable before Python starts — even empty template lines — and
+# load_dotenv() never overrides an existing variable, so a .env file is
+# ignored there. Point at both places.
+_CONFIG_HINT = "Set it in /etc/why2k/env on the server, or in .env for a local run."
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
-    sys.exit("Error: DISCORD_TOKEN is not set. Please add it to your .env file.")
+    sys.exit(f"Error: DISCORD_TOKEN is not set. {_CONFIG_HINT}")
 
 _raw_channel_id = os.getenv("VOICE_CHANNEL_ID")
 if not _raw_channel_id:
-    sys.exit("Error: VOICE_CHANNEL_ID is not set. Please add it to your .env file.")
+    sys.exit(f"Error: VOICE_CHANNEL_ID is not set. {_CONFIG_HINT}")
 try:
     CHANNEL_ID = int(_raw_channel_id)
 except ValueError:
@@ -323,16 +329,9 @@ async def on_voice_state_update(member, before, after):
 
 
 async def main():
-    # Opus is loaded lazily by discord.py on first voice use. Probe at startup
-    # so a misconfigured deployment surfaces the issue immediately. We warn
-    # rather than fail: the bot connects mute/deaf, so it can run without
-    # actually exercising Opus.
-    if not discord.opus.is_loaded():
-        print(
-            "Warning: Opus library is not loaded. Voice connect may fail "
-            "(install libopus and ensure it is on the library search path)."
-        )
-
+    # No Opus check here: discord.py only loads Opus when play() encodes
+    # audio, and this bot never plays (it joins self-mute/self-deaf), so
+    # is_loaded() was always False at startup and the warning was noise.
     health_server = await asyncio.start_server(handle_health_check, "0.0.0.0", PORT)
     print(f"Health check server listening on port {PORT}")
 
