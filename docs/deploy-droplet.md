@@ -40,11 +40,11 @@ The bot's health-check endpoint binds `0.0.0.0:8080` but the firewall blocks it 
 
 The repository is private, so `https://raw.githubusercontent.com/...` URLs return 404 and plain `git clone https://...` asks for credentials. The droplet reads the repo with a **deploy key**: an SSH key that can read this one repository and nothing else, held by the `why2k` service user.
 
-Create the `why2k` user first, because the key lives in its home directory. These are the same commands the installer runs; it skips them when the user already exists.
+Create the `why2k` user first, because the key lives in its home directory. These are the installer's own commands, guarded the same way, so they do nothing on a droplet that already has the user:
 
 ```bash
-groupadd --system why2k
-useradd --system --gid why2k --create-home --home-dir /home/why2k --shell /usr/sbin/nologin why2k
+getent group why2k >/dev/null || groupadd --system why2k
+id -u why2k >/dev/null 2>&1 || useradd --system --gid why2k --create-home --home-dir /home/why2k --shell /usr/sbin/nologin why2k
 ```
 
 Create the key and trust GitHub's host key:
@@ -74,16 +74,16 @@ runuser -u why2k -- ssh -T git@github.com
 
 Clone the repo with the deploy key, review the installer, and run it from the clone. It's idempotent. On a fresh install it stops short of starting the service so you can fill in secrets first.
 
+The installer deploys `git@github.com:3ComBoris/Why2K.git` (branch `main`) by default. To deploy a fork or another branch, put `REPO_URL` and/or `BRANCH` on the `bash` line below, e.g. `REPO_URL=git@github.com:your-fork/Why2K.git BRANCH=my-branch bash /tmp/why2k-src/deploy/install.sh`. A fork needs its own deploy key.
+
 ```bash
 cd /tmp                                   # the why2k user can't read /root
 apt-get update -qq && apt-get install -y git
 runuser -u why2k -- git clone --depth=1 git@github.com:3ComBoris/Why2K.git /tmp/why2k-src
 less /tmp/why2k-src/deploy/install.sh     # review it
 bash /tmp/why2k-src/deploy/install.sh
-rm -rf /tmp/why2k-src
+rm -rf /tmp/why2k-src                     # the installer made its own checkout in /opt/why2k
 ```
-
-The installer clones `git@github.com:3ComBoris/Why2K.git` (branch `main`) by default. To deploy a fork or another branch, set `REPO_URL` and/or `BRANCH`, for example `REPO_URL=git@github.com:your-fork/Why2K.git BRANCH=my-branch bash /tmp/why2k-src/deploy/install.sh`. A fork needs its own deploy key.
 
 What it does:
 
@@ -112,7 +112,7 @@ VOICE_CHANNEL_ID=123456789012345678
 # PORT=8080   # uncomment to change the health-check port
 ```
 
-This is the only file the service reads. A `.env` in `/opt/why2k` is ignored (see [Troubleshooting](#10-troubleshooting)). If you replace the file rather than edit it, restore its permissions so the token isn't world-readable: `chown root:why2k /etc/why2k/env && chmod 640 /etc/why2k/env`.
+Put the values here, not in a `.env` in `/opt/why2k`: a `.env` can't supply `DISCORD_TOKEN` or `VOICE_CHANNEL_ID` on the droplet (see [Troubleshooting](#10-troubleshooting)), though it would still set variables this file leaves unset, such as `PORT`, so don't keep one there. If you replace the file rather than edit it, restore its permissions so the token isn't world-readable: `chown root:why2k /etc/why2k/env && chmod 640 /etc/why2k/env`.
 
 ## 6. Start the service
 
@@ -198,6 +198,6 @@ REPO_URL=git@github.com:3ComBoris/Why2K.git bash /tmp/why2k-install.sh
 
 **`Permission denied (publickey)` while cloning or updating.** The deploy key isn't set up or isn't added on GitHub. Re-check section 3, and test with `runuser -u why2k -- ssh -T git@github.com`. **`Host key verification failed`** means `/home/why2k/.ssh/known_hosts` is missing or wrong.
 
-**Service won't start.** `journalctl -u why2k -n 50` will show the Python error. Most common: `DISCORD_TOKEN is not set.` (or `VOICE_CHANNEL_ID is not set.`). Fill it in `/etc/why2k/env`, which the unit loads via `EnvironmentFile=`. A `.env` file in `/opt/why2k` does **not** work here: systemd sets every variable from `/etc/why2k/env` before the bot starts — including the installer's empty `DISCORD_TOKEN=` template line — and the bot's `.env` loader never overrides a variable that's already set, even to an empty value.
+**Service won't start.** `journalctl -u why2k -n 50` will show the Python error. Most common: `DISCORD_TOKEN is not set.` (or `VOICE_CHANNEL_ID is not set.`). Fill it in `/etc/why2k/env`, which the unit loads via `EnvironmentFile=`. Putting it in a `.env` file in `/opt/why2k` does **not** work: systemd sets every variable listed in `/etc/why2k/env` before the bot starts — including the installer's empty `DISCORD_TOKEN=` and `VOICE_CHANNEL_ID=` template lines — and the bot's `.env` loader never overrides a variable that's already set, even to an empty value. (It only fills in variables that are unset, such as a commented-out `PORT`.)
 
 **Bot logs in but voice still drops every 30s.** Confirm with `ss -ulnp | grep python` that the bot has bound a local UDP port, and `iptables -L OUTPUT` doesn't reject UDP. On a standard droplet with default `ufw` outbound is unrestricted — if you've tightened it, allow outbound UDP to Discord's voice regions.

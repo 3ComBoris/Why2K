@@ -28,9 +28,10 @@ logging.getLogger("discord.gateway").setLevel(logging.INFO)
 logging.getLogger("voice_resilience").setLevel(logging.INFO)
 
 # Under systemd the values come from /etc/why2k/env (EnvironmentFile=), which
-# sets every variable before Python starts — even empty template lines — and
-# load_dotenv() never overrides an existing variable, so a .env file is
-# ignored there. Point at both places.
+# sets every variable it lists before Python starts — even empty template
+# lines — and load_dotenv() never overrides an existing variable (it only
+# fills in unset ones), so a .env can't supply DISCORD_TOKEN or
+# VOICE_CHANNEL_ID there. Point at both places.
 _CONFIG_HINT = "Set it in /etc/why2k/env on the server, or in .env for a local run."
 
 TOKEN = os.getenv("DISCORD_TOKEN")
