@@ -27,13 +27,20 @@ logging.getLogger("discord.gateway").setLevel(logging.INFO)
 # of journald — which the live-validation grep relies on seeing.
 logging.getLogger("voice_resilience").setLevel(logging.INFO)
 
+# Under systemd the values come from /etc/why2k/env (EnvironmentFile=), which
+# sets every variable it lists before Python starts — even empty template
+# lines — and load_dotenv() never overrides an existing variable (it only
+# fills in unset ones), so a .env can't supply DISCORD_TOKEN or
+# VOICE_CHANNEL_ID there. Point at both places.
+_CONFIG_HINT = "Set it in /etc/why2k/env on the server, or in .env for a local run."
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
-    sys.exit("Error: DISCORD_TOKEN is not set. Please add it to your .env file.")
+    sys.exit(f"Error: DISCORD_TOKEN is not set. {_CONFIG_HINT}")
 
 _raw_channel_id = os.getenv("VOICE_CHANNEL_ID")
 if not _raw_channel_id:
-    sys.exit("Error: VOICE_CHANNEL_ID is not set. Please add it to your .env file.")
+    sys.exit(f"Error: VOICE_CHANNEL_ID is not set. {_CONFIG_HINT}")
 try:
     CHANNEL_ID = int(_raw_channel_id)
 except ValueError:
@@ -51,15 +58,6 @@ VOICE_CONNECT_INITIAL_RETRY_SECONDS = 30
 VOICE_CONNECT_MAX_RETRY_SECONDS = 300
 HEALTH_CHECK_READ_TIMEOUT_SECONDS = 5
 
-# Circuit breaker for the case where voice sessions keep dying within seconds
-# of being established (almost always a hosting-platform UDP egress problem,
-# e.g. DigitalOcean App Platform, Render, Heroku). After this many consecutive
-# sub-threshold sessions we stop reconnecting and flip the health endpoint to
-# 503 so the platform notices something is wrong instead of looking healthy
-# while flapping forever.
-VOICE_SESSION_MIN_DURATION_SECONDS = 60
-VOICE_SESSION_FAILURE_LIMIT = 5
-
 
 class Why2KClient(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -68,7 +66,6 @@ class Why2KClient(discord.Client):
         self.fatal_startup_error: bool = False
         self.discord_ready: bool = False
         self.last_voice_connected_at: Optional[float] = None
-        self.short_voice_session_count: int = 0
 
 
 intents = discord.Intents.default()
@@ -288,34 +285,12 @@ async def on_voice_state_update(member, before, after):
         return
 
     if before_channel_id == CHANNEL_ID:
-        # Only score true disconnects (after_channel_id is None) against the
-        # circuit breaker. Admin-initiated moves to another channel are a
-        # deliberate action, not a network failure.
-        if after_channel_id is None and client.last_voice_connected_at is not None:
+        # The bot's only job is to be in this channel, so it always rejoins —
+        # there is deliberately no give-up limit, however often sessions drop.
+        # Log how long the stay lasted so presence gaps show up in the journal.
+        if client.last_voice_connected_at is not None:
             duration = time.monotonic() - client.last_voice_connected_at
-            if duration < VOICE_SESSION_MIN_DURATION_SECONDS:
-                client.short_voice_session_count += 1
-                print(
-                    f"Voice session lasted {duration:.1f}s "
-                    f"(< {VOICE_SESSION_MIN_DURATION_SECONDS}s threshold). "
-                    f"Short-session count: "
-                    f"{client.short_voice_session_count}/{VOICE_SESSION_FAILURE_LIMIT}."
-                )
-                if client.short_voice_session_count >= VOICE_SESSION_FAILURE_LIMIT:
-                    await fail_startup(
-                        f"Error: Voice sessions are dropping within "
-                        f"{VOICE_SESSION_MIN_DURATION_SECONDS}s "
-                        f"({VOICE_SESSION_FAILURE_LIMIT} consecutive). This is almost "
-                        f"always a hosting-platform UDP egress issue (DigitalOcean "
-                        f"App Platform, Render, and Heroku are common offenders), "
-                        f"not a Discord or bot bug. Deploy to a host with "
-                        f"persistent outbound UDP (a VPS, Fly.io, Railway, or "
-                        f"DigitalOcean Droplet)."
-                    )
-                    return
-            else:
-                # A healthy long session resets the breaker.
-                client.short_voice_session_count = 0
+            print(f"Voice session in channel {CHANNEL_ID} lasted {duration:.0f}s.")
 
         print(f"Voice disconnected from channel {CHANNEL_ID}; reconnecting.")
         if client.voice_connect_task is None or client.voice_connect_task.done():
@@ -323,16 +298,9 @@ async def on_voice_state_update(member, before, after):
 
 
 async def main():
-    # Opus is loaded lazily by discord.py on first voice use. Probe at startup
-    # so a misconfigured deployment surfaces the issue immediately. We warn
-    # rather than fail: the bot connects mute/deaf, so it can run without
-    # actually exercising Opus.
-    if not discord.opus.is_loaded():
-        print(
-            "Warning: Opus library is not loaded. Voice connect may fail "
-            "(install libopus and ensure it is on the library search path)."
-        )
-
+    # No Opus check here: discord.py only loads Opus when play() encodes
+    # audio, and this bot never plays (it joins self-mute/self-deaf), so
+    # is_loaded() was always False at startup and the warning was noise.
     health_server = await asyncio.start_server(handle_health_check, "0.0.0.0", PORT)
     print(f"Health check server listening on port {PORT}")
 

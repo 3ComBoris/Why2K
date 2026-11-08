@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Why2K droplet installer. Idempotent — safe to re-run after a git pull.
 #
-# Run as root on a fresh Ubuntu 22.04+ / Debian 12+ droplet:
-#   curl -fsSL https://raw.githubusercontent.com/3ComBoris/Why2K/main/deploy/install.sh | bash
-# or, after cloning:
-#   sudo bash deploy/install.sh
+# The repo is private: the why2k user needs a read-only deploy key before
+# this can clone or fetch (see docs/deploy-droplet.md). Then, as root on an
+# Ubuntu 22.04+ / Debian 12+ droplet, run it from a clone:
+#   bash deploy/install.sh
 
 set -euo pipefail
 
@@ -16,7 +16,9 @@ ENV_DIR="/etc/why2k"
 ENV_FILE="${ENV_DIR}/env"
 SERVICE_NAME="why2k"
 
-REPO_URL="${REPO_URL:-https://github.com/3ComBoris/Why2K.git}"
+# SSH, not HTTPS: the repo is private and the why2k user authenticates with
+# its deploy key. Existing checkouts are retargeted by `remote set-url` below.
+REPO_URL="${REPO_URL:-git@github.com:3ComBoris/Why2K.git}"
 BRANCH="${BRANCH:-main}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
